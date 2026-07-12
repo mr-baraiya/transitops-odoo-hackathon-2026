@@ -328,6 +328,18 @@ router.get('/', (req, res) => {
             <td>Sign out current user sessions.</td>
             <td><span class="role-badge" style="background-color: rgba(255,255,255,0.05); color:#cbd5e1; border: 1px solid rgba(255,255,255,0.1)">Any</span></td>
           </tr>
+          <tr>
+            <td><span class="method POST">POST</span></td>
+            <td><span class="endpoint">/api/auth/forgot-password</span></td>
+            <td>Initiates reset workflow; mails a password reset link to user.</td>
+            <td><span class="role-badge" style="background-color: rgba(255,255,255,0.05); color:#cbd5e1; border: 1px solid rgba(255,255,255,0.1)">Public</span></td>
+          </tr>
+          <tr>
+            <td><span class="method POST">POST</span></td>
+            <td><span class="endpoint">/api/auth/reset-password</span></td>
+            <td>Validates one-time reset token and updates account password.</td>
+            <td><span class="role-badge" style="background-color: rgba(255,255,255,0.05); color:#cbd5e1; border: 1px solid rgba(255,255,255,0.1)">Public</span></td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -389,7 +401,7 @@ router.get('/', (req, res) => {
           <tr>
             <td><span class="method GET">GET</span></td>
             <td><span class="endpoint">/api/vehicles</span></td>
-            <td>List vehicles (supports <code>type</code>, <code>status</code>, and <code>region</code> filtering).</td>
+            <td>List vehicles (supports <code>type</code>, <code>status</code>, <code>region</code> filters, text <code>search</code>, and sql-safe column <code>sortBy</code>/<code>sortOrder</code>).</td>
             <td><span class="role-badge" style="background-color: rgba(255,255,255,0.05); color:#cbd5e1; border: 1px solid rgba(255,255,255,0.1)">Any</span></td>
           </tr>
           <tr>
@@ -448,7 +460,7 @@ router.get('/', (req, res) => {
           <tr>
             <td><span class="method GET">GET</span></td>
             <td><span class="endpoint">/api/drivers</span></td>
-            <td>List registered drivers (supports status & license categories filtering).</td>
+            <td>List registered drivers (supports status & license filters, text <code>search</code>, and sql-safe column <code>sortBy</code>/<code>sortOrder</code>).</td>
             <td><span class="role-badge" style="background-color: rgba(255,255,255,0.05); color:#cbd5e1; border: 1px solid rgba(255,255,255,0.1)">Any</span></td>
           </tr>
           <tr>

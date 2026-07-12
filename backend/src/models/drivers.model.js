@@ -14,6 +14,25 @@ const DriversModel = {
       conditions.push(`d.license_category = $${idx++}`);
       params.push(filters.license_category);
     }
+    if (filters.search) {
+      conditions.push(`(u.first_name ILIKE $${idx} OR u.last_name ILIKE $${idx} OR u.email ILIKE $${idx} OR d.license_number ILIKE $${idx})`);
+      params.push(`%${filters.search}%`);
+      idx++;
+    }
+
+    const allowedSortColumns = {
+      id: 'd.id',
+      license_number: 'd.license_number',
+      license_category: 'd.license_category',
+      license_expiry: 'd.license_expiry',
+      safety_score: 'd.safety_score',
+      status: 'd.status',
+      first_name: 'u.first_name',
+      last_name: 'u.last_name',
+      email: 'u.email'
+    };
+    const sortBy = allowedSortColumns[filters.sortBy] || 'd.id';
+    const sortOrder = filters.sortOrder === 'DESC' ? 'DESC' : 'ASC';
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     return query(
@@ -21,7 +40,7 @@ const DriversModel = {
        FROM drivers d
        JOIN users u ON u.id = d.user_id
        ${where}
-       ORDER BY d.id`,
+       ORDER BY ${sortBy} ${sortOrder}`,
       params
     );
   },

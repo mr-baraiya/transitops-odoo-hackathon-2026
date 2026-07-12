@@ -145,6 +145,41 @@ Gets current logged-in user profile.
   }
   ```
 
+### POST `/auth/forgot-password`
+Initiates a password reset workflow. Mails a reset button link containing a short-lived reset token to the user.
+- **Request Body**:
+  ```json
+  {
+    "email": "baraiyavishalbhai32@gmail.com"
+  }
+  ```
+- **Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "message": "If the email is registered, a password reset link has been sent",
+    "data": null
+  }
+  ```
+
+### POST `/auth/reset-password`
+Verifies a short-lived reset token and sets a new password for the associated user account.
+- **Request Body**:
+  ```json
+  {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "password": "NewPassword123"
+  }
+  ```
+- **Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "message": "Password reset successfully",
+    "data": null
+  }
+  ```
+
 ---
 
 ## 2. Users (`/users`)
@@ -161,10 +196,13 @@ All routes require **Fleet Manager** access.
 ## 3. Vehicles (`/vehicles`)
 
 - **GET `/vehicles`**: List all vehicles.
-  - **Query Params** (Optional filters):
+  - **Query Params** (Optional filters & sorting):
     - `?type=Truck`
     - `?status=Available` (Available / On Trip / In Shop / Retired)
     - `?region=Rajkot`
+    - `?search=Maruti` (Searches registration number, vehicle name, or model)
+    - `?sortBy=odometer` (id / registration_number / vehicle_name / model / vehicle_type / max_load_capacity / odometer / acquisition_cost / purchase_date / status / region)
+    - `?sortOrder=DESC` (ASC / DESC)
 - **GET `/vehicles/available`**: Helper pool endpoint for trips dispatch list. Returns only available vehicles (excludes Retired / In Shop).
 - **POST `/vehicles`** (FM only): Registers a new vehicle.
   - **Request Body**:
@@ -189,7 +227,13 @@ All routes require **Fleet Manager** access.
 
 ## 4. Drivers (`/drivers`)
 
-- **GET `/drivers`**: Lists all drivers. Supports filters `?status=` and `?license_category=`.
+- **GET `/drivers`**: Lists all drivers.
+  - **Query Params** (Optional filters & sorting):
+    - `?status=Available` (Available / On Trip / Off Duty / Suspended)
+    - `?license_category=HMV`
+    - `?search=Patel` (Searches first name, last name, email, or license number)
+    - `?sortBy=safety_score` (id / license_number / license_category / license_expiry / safety_score / status / first_name / last_name / email)
+    - `?sortOrder=DESC` (ASC / DESC)
 - **GET `/drivers/available`**: Active dispatch pool. Returns available drivers with non-expired licenses.
 - **GET `/drivers/license-alerts`** (Safety Officer, FM): Drivers with expiring/expired licenses.
 - **POST `/drivers/license-alerts/send`** (Safety Officer only): Manually triggers reminder emails to affected drivers.

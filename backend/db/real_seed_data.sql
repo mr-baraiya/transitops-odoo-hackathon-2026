@@ -20,7 +20,6 @@ ON CONFLICT (name) DO NOTHING;
 -- Users (staff + drivers, real names/phones for drivers where available)
 INSERT INTO users (role_id, first_name, last_name, email, password_hash, phone, status) VALUES
 ((SELECT id FROM roles WHERE name='Admin'), 'Ava', 'Shah', 'ava.shah@transitops.com', 'placeholder_6f9356214af356d54a6c827e6cd71d5528d02032a82f9593b12c3850abe2', '9298082098', 'Active'),
-((SELECT id FROM roles WHERE name='Admin'), 'Vishal', 'Baraiya', 'baraiyavishalbhai32@gmail.com', '$2b$12$L3ix6P11OjXqevbz1aK5pur6iuHp6vFcfTYyGb4MN9j2fX693tGiO', '7383359679', 'Active'),
 ((SELECT id FROM roles WHERE name='Fleet Manager'), 'Rohan', 'Mehta', 'rohan.mehta@transitops.com', 'placeholder_8a373ae5c80d59a7dd3e9cce9f98b86679c37837e707a9c876040c401ccb', '9189773437', 'Active'),
 ((SELECT id FROM roles WHERE name='Fleet Manager'), 'Neha', 'Kulkarni', 'neha.kulkarni@transitops.com', 'placeholder_6803ad47b94e93256475212b2a41ad7a18c4f4e3db58d95b6b4c1270bb72', '9918772601', 'Active'),
 ((SELECT id FROM roles WHERE name='Safety Officer'), 'Sameer', 'Joshi', 'sameer.joshi@transitops.com', 'placeholder_4f35b92b0cc2d70c1b503cbfc4b5153043e884e58d28fe29515786788d02', '9844765353', 'Active'),

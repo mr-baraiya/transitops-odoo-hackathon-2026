@@ -25,7 +25,7 @@ const sendMail = async (to, subject, html) => {
   }
 
   return transporter.sendMail({
-    from: env.MAIL_FROM,
+    from: `"TransitOps Support" <${env.MAIL_FROM}>`,
     to,
     subject,
     html,

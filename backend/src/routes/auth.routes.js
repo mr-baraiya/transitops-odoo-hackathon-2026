@@ -10,5 +10,7 @@ router.post('/register', authenticate, authorize('Admin', 'Fleet Manager'), vali
 router.post('/login', validate(authSchemas.login, 'body'), authController.login);
 router.post('/logout', authenticate, authController.logout);
 router.get('/me', authenticate, authController.me);
+router.post('/forgot-password', validate(authSchemas.forgotPassword, 'body'), authController.forgotPassword);
+router.post('/reset-password', validate(authSchemas.resetPassword, 'body'), authController.resetPassword);
 
 module.exports = router;

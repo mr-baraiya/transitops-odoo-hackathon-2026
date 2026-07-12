@@ -18,6 +18,7 @@ const optional = {
   SMTP_USER: '',
   SMTP_PASS: '',
   MAIL_FROM: 'noreply@transitops.com',
+  FRONTEND_URL: 'http://localhost:3000',
 };
 
 // Validate required vars

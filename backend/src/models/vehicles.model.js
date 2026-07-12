@@ -18,9 +18,22 @@ const VehiclesModel = {
       conditions.push(`region = $${idx++}`);
       params.push(filters.region);
     }
+    if (filters.search) {
+      conditions.push(`(vehicle_name ILIKE $${idx} OR model ILIKE $${idx} OR registration_number ILIKE $${idx})`);
+      params.push(`%${filters.search}%`);
+      idx++;
+    }
+
+    const allowedSortColumns = [
+      'id', 'registration_number', 'vehicle_name', 'model', 
+      'vehicle_type', 'max_load_capacity', 'odometer', 
+      'acquisition_cost', 'purchase_date', 'status', 'region'
+    ];
+    const sortBy = allowedSortColumns.includes(filters.sortBy) ? filters.sortBy : 'id';
+    const sortOrder = filters.sortOrder === 'DESC' ? 'DESC' : 'ASC';
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    return query(`SELECT * FROM vehicles ${where} ORDER BY id`, params);
+    return query(`SELECT * FROM vehicles ${where} ORDER BY "${sortBy}" ${sortOrder}`, params);
   },
 
   findAvailable: () =>
