@@ -1,78 +1,120 @@
 -- ============================================================
--- TRANSITOPS - COMPLETE DATABASE SETUP (Production-Ready MVP)
+-- TRANSITOPS - COMPLETE DATABASE SETUP (PostgreSQL version)
+-- Run this connected to the transitops_db database, e.g.:
+--   psql -U postgres -d transitops_db -f 02_schema_and_seed.sql
 -- ============================================================
-DROP DATABASE IF EXISTS transitops_db;
 
-CREATE DATABASE transitops_db
-    CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
+-- Needed for password hashing (SHA2 -> digest) used in the seed data below
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-USE transitops_db;
+-- ------------------------------------------------------------
+-- ENUM TYPES
+-- MySQL's inline ENUM(...) columns become named types in Postgres
+-- ------------------------------------------------------------
+CREATE TYPE vehicle_status_enum AS ENUM ('Available', 'On Trip', 'In Shop', 'Retired');
+CREATE TYPE driver_status_enum AS ENUM ('Available', 'On Trip', 'Off Duty', 'Suspended');
+CREATE TYPE trip_status_enum AS ENUM ('Draft', 'Dispatched', 'Completed', 'Cancelled');
+CREATE TYPE maintenance_status_enum AS ENUM ('Active', 'Closed');
+CREATE TYPE expense_type_enum AS ENUM ('Toll', 'Parking', 'Repair', 'Other');
+
+-- ------------------------------------------------------------
+-- Generic trigger function to emulate MySQL's
+-- "ON UPDATE CURRENT_TIMESTAMP" behavior on updated_at columns
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
 -- 1. Roles
 CREATE TABLE roles (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(50) UNIQUE NOT NULL COMMENT 'Role name'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL
+);
+COMMENT ON COLUMN roles.name IS 'Role name';
 
 -- 2. Users
 CREATE TABLE users (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
     password VARCHAR(255) NOT NULL,
-    profile VARCHAR(255) DEFAULT NULL COMMENT 'Profile picture link or file path',
-    role_id INT UNSIGNED NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    profile VARCHAR(255) DEFAULT NULL,
+    role_id INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
+COMMENT ON COLUMN users.profile IS 'Profile picture link or file path';
+
+CREATE TRIGGER trg_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- 3. Locations
 CREATE TABLE locations (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name VARCHAR(100) UNIQUE NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TRIGGER trg_locations_updated_at
+    BEFORE UPDATE ON locations
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- 4. Vehicles
 CREATE TABLE vehicles (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    registration_number VARCHAR(20) UNIQUE NOT NULL COMMENT 'Unique vehicle plate/ID',
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    registration_number VARCHAR(20) UNIQUE NOT NULL,
     model VARCHAR(100) NOT NULL,
-    type VARCHAR(50) NOT NULL COMMENT 'e.g., Van, Truck, Trailer',
-    max_load_capacity DECIMAL(10,2) NOT NULL CHECK (max_load_capacity >= 0) COMMENT 'in kg',
-    odometer DECIMAL(10,2) DEFAULT 0.00 CHECK (odometer >= 0) COMMENT 'Current odometer reading (km)',
+    type VARCHAR(50) NOT NULL,
+    max_load_capacity DECIMAL(10,2) NOT NULL CHECK (max_load_capacity >= 0),
+    odometer DECIMAL(10,2) DEFAULT 0.00 CHECK (odometer >= 0),
     acquisition_cost DECIMAL(12,2) NOT NULL CHECK (acquisition_cost >= 0),
-    status ENUM('Available', 'On Trip', 'In Shop', 'Retired') DEFAULT 'Available',
-    deleted_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    status vehicle_status_enum DEFAULT 'Available',
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON COLUMN vehicles.registration_number IS 'Unique vehicle plate/ID';
+COMMENT ON COLUMN vehicles.type IS 'e.g., Van, Truck, Trailer';
+COMMENT ON COLUMN vehicles.max_load_capacity IS 'in kg';
+COMMENT ON COLUMN vehicles.odometer IS 'Current odometer reading (km)';
+
+CREATE TRIGGER trg_vehicles_updated_at
+    BEFORE UPDATE ON vehicles
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- 5. Drivers
 CREATE TABLE drivers (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     license_number VARCHAR(50) UNIQUE NOT NULL,
     license_category VARCHAR(20) NOT NULL,
     license_expiry_date DATE NOT NULL,
     contact_number VARCHAR(20),
-    safety_score TINYINT UNSIGNED DEFAULT 100 CHECK (safety_score >= 0 AND safety_score <= 100),
-    status ENUM('Available', 'On Trip', 'Off Duty', 'Suspended') DEFAULT 'Available',
-    user_id INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    safety_score SMALLINT DEFAULT 100 CHECK (safety_score >= 0 AND safety_score <= 100),
+    status driver_status_enum DEFAULT 'Available',
+    user_id INTEGER NULL,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
+
+CREATE TRIGGER trg_drivers_updated_at
+    BEFORE UPDATE ON drivers
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- 6. Trips
 CREATE TABLE trips (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    source_location_id INT UNSIGNED NOT NULL,
-    destination_location_id INT UNSIGNED NOT NULL,
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    source_location_id INTEGER NOT NULL,
+    destination_location_id INTEGER NOT NULL,
     cargo_weight DECIMAL(10,2) NOT NULL CHECK (cargo_weight >= 0),
     planned_distance DECIMAL(10,2) NOT NULL CHECK (planned_distance >= 0),
     actual_distance DECIMAL(10,2) DEFAULT NULL CHECK (actual_distance IS NULL OR actual_distance >= 0),
@@ -80,16 +122,16 @@ CREATE TABLE trips (
     start_odometer DECIMAL(10,2) DEFAULT NULL,
     end_odometer DECIMAL(10,2) DEFAULT NULL,
     revenue DECIMAL(12,2) DEFAULT 0.00 CHECK (revenue >= 0),
-    status ENUM('Draft', 'Dispatched', 'Completed', 'Cancelled') DEFAULT 'Draft',
-    vehicle_id INT UNSIGNED NOT NULL,
-    driver_id INT UNSIGNED NOT NULL,
-    created_by INT UNSIGNED NULL,
-    updated_by INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    dispatched_at DATETIME NULL DEFAULT NULL,
-    completed_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    status trip_status_enum DEFAULT 'Draft',
+    vehicle_id INTEGER NOT NULL,
+    driver_id INTEGER NOT NULL,
+    created_by INTEGER NULL,
+    updated_by INTEGER NULL,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    dispatched_at TIMESTAMP NULL DEFAULT NULL,
+    completed_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (source_location_id) REFERENCES locations(id) ON DELETE RESTRICT,
     FOREIGN KEY (destination_location_id) REFERENCES locations(id) ON DELETE RESTRICT,
     FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT,
@@ -98,65 +140,83 @@ CREATE TABLE trips (
     FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
     CHECK (start_odometer IS NULL OR end_odometer IS NULL OR end_odometer >= start_odometer),
     CHECK (completed_at IS NULL OR dispatched_at IS NULL OR completed_at >= dispatched_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
+
+CREATE TRIGGER trg_trips_updated_at
+    BEFORE UPDATE ON trips
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- 7. Maintenance Logs
 CREATE TABLE maintenance_logs (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    vehicle_id INT UNSIGNED NOT NULL,
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    vehicle_id INTEGER NOT NULL,
     maintenance_date DATE NOT NULL,
     description TEXT NOT NULL,
     cost DECIMAL(12,2) DEFAULT 0.00 CHECK (cost >= 0),
-    status ENUM('Active', 'Closed') DEFAULT 'Active',
-    created_by INT UNSIGNED NULL,
-    updated_by INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    closed_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    status maintenance_status_enum DEFAULT 'Active',
+    created_by INTEGER NULL,
+    updated_by INTEGER NULL,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    closed_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
+
+CREATE TRIGGER trg_maintenance_logs_updated_at
+    BEFORE UPDATE ON maintenance_logs
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- 8. Fuel Logs
 CREATE TABLE fuel_logs (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    vehicle_id INT UNSIGNED NOT NULL,
-    trip_id INT UNSIGNED NULL,
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    vehicle_id INTEGER NOT NULL,
+    trip_id INTEGER NULL,
     fuel_date DATE NOT NULL,
     liters DECIMAL(10,2) NOT NULL CHECK (liters >= 0),
     cost DECIMAL(12,2) NOT NULL CHECK (cost >= 0),
-    created_by INT UNSIGNED NULL,
-    updated_by INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_by INTEGER NULL,
+    updated_by INTEGER NULL,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT,
     FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE SET NULL,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
+
+CREATE TRIGGER trg_fuel_logs_updated_at
+    BEFORE UPDATE ON fuel_logs
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- 9. Expenses
 CREATE TABLE expenses (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    vehicle_id INT UNSIGNED NOT NULL,
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    vehicle_id INTEGER NOT NULL,
     expense_date DATE NOT NULL,
     description VARCHAR(255) NOT NULL,
     cost DECIMAL(12,2) NOT NULL CHECK (cost >= 0),
-    type ENUM('Toll', 'Parking', 'Repair', 'Other') DEFAULT 'Other',
-    created_by INT UNSIGNED NULL,
-    updated_by INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    type expense_type_enum DEFAULT 'Other',
+    created_by INTEGER NULL,
+    updated_by INTEGER NULL,
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT,
     FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
     FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
 
+CREATE TRIGGER trg_expenses_updated_at
+    BEFORE UPDATE ON expenses
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ------------------------------------------------------------
 -- Indexes
+-- ------------------------------------------------------------
 CREATE INDEX idx_vehicles_status ON vehicles(status);
 CREATE INDEX idx_vehicles_created_at ON vehicles(created_at);
 CREATE INDEX idx_drivers_status ON drivers(status);
@@ -177,12 +237,13 @@ CREATE INDEX idx_expenses_date ON expenses(expense_date);
 -- ============================================================
 INSERT INTO roles (name) VALUES ('Admin'), ('Fleet Manager'), ('Driver'), ('Safety Officer'), ('Financial Analyst');
 
+-- SHA2(...) -> encode(digest(...,'sha256'),'hex'); CONCAT(a,b) -> a || b
 INSERT INTO users (name, email, password, profile, role_id) VALUES
-    ('Admin User', 'admin@transitops.com', CONCAT('sha256$', SHA2('admin123', 256)), 'uploads/profiles/admin.jpg', (SELECT id FROM roles WHERE name='Admin')),
-    ('Fleet Manager', 'fleet@transitops.com', CONCAT('sha256$', SHA2('fleet123', 256)), 'uploads/profiles/fleet.jpg', (SELECT id FROM roles WHERE name='Fleet Manager')),
-    ('Driver John', 'john.driver@transitops.com', CONCAT('sha256$', SHA2('driver123', 256)), 'uploads/profiles/driver.jpg', (SELECT id FROM roles WHERE name='Driver')),
-    ('Safety Officer', 'safety@transitops.com', CONCAT('sha256$', SHA2('safety123', 256)), 'uploads/profiles/safety.jpg', (SELECT id FROM roles WHERE name='Safety Officer')),
-    ('Financial Analyst', 'finance@transitops.com', CONCAT('sha256$', SHA2('finance123', 256)), 'uploads/profiles/finance.jpg', (SELECT id FROM roles WHERE name='Financial Analyst'));
+    ('Admin User', 'admin@transitops.com', 'sha256$' || encode(digest('admin123', 'sha256'), 'hex'), 'uploads/profiles/admin.jpg', (SELECT id FROM roles WHERE name='Admin')),
+    ('Fleet Manager', 'fleet@transitops.com', 'sha256$' || encode(digest('fleet123', 'sha256'), 'hex'), 'uploads/profiles/fleet.jpg', (SELECT id FROM roles WHERE name='Fleet Manager')),
+    ('Driver John', 'john.driver@transitops.com', 'sha256$' || encode(digest('driver123', 'sha256'), 'hex'), 'uploads/profiles/driver.jpg', (SELECT id FROM roles WHERE name='Driver')),
+    ('Safety Officer', 'safety@transitops.com', 'sha256$' || encode(digest('safety123', 'sha256'), 'hex'), 'uploads/profiles/safety.jpg', (SELECT id FROM roles WHERE name='Safety Officer')),
+    ('Financial Analyst', 'finance@transitops.com', 'sha256$' || encode(digest('finance123', 'sha256'), 'hex'), 'uploads/profiles/finance.jpg', (SELECT id FROM roles WHERE name='Financial Analyst'));
 
 INSERT INTO locations (name) VALUES
     ('Warehouse A'),

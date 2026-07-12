@@ -7,9 +7,9 @@ This database is designed for a fleet management system and now includes stronge
 ## Database Details
 
 - Database name: `transitops_db`
-- Character set: `utf8mb4`
-- Collation: `utf8mb4_unicode_ci`
-- Storage engine: `InnoDB`
+- Engine: PostgreSQL
+- Encoding: `UTF8`
+- Setup files: `01_create_database.sql` (run once against a maintenance DB, e.g. `postgres`) and `02_schema_and_seed.sql` (run against `transitops_db` itself)
 
 ## What Changed
 
@@ -20,9 +20,11 @@ The schema now includes:
 - An optional `user_id` link from `drivers` to `users`
 - Soft-delete support using `deleted_at`
 - Audit columns (`created_by`, `updated_by`) on operational tables
-- Hashed passwords in the seed data
-- Date/time fields stored as `DATETIME` for clearer application-level timezone handling
+- Hashed passwords in the seed data (generated with the `pgcrypto` extension's `digest()` function)
+- Date/time fields stored as `TIMESTAMP` for clearer application-level timezone handling
 - Extra indexes for date-based reporting
+- Named `ENUM` types (e.g. `vehicle_status_enum`, `trip_status_enum`) instead of inline enum lists, since Postgres requires enums to be declared as standalone types
+- A `set_updated_at()` trigger function attached to every table with an `updated_at` column, so the column auto-refreshes on update (Postgres has no built-in `ON UPDATE` clause like MySQL)
 
 ## Table Summary
 
@@ -42,7 +44,7 @@ The schema now includes:
 
 ## 1. Roles
 
-- `id`: Primary key
+- `id`: Primary key (`GENERATED ALWAYS AS IDENTITY`)
 - `name`: Unique role name
 
 ## 2. Users
@@ -118,6 +120,19 @@ Trips now use location IDs instead of plain strings.
 
 ---
 
+## PostgreSQL Implementation Notes
+
+A few things translated differently from the original MySQL design and are worth knowing when reading or extending the schema:
+
+- **Auto-increment IDs**: implemented with `GENERATED ALWAYS AS IDENTITY` rather than `AUTO_INCREMENT`.
+- **Enums**: `status`/`type` columns use dedicated Postgres `ENUM` types (created up front with `CREATE TYPE`) instead of inline `ENUM(...)` lists.
+- **Unsigned integers**: MySQL's `INT UNSIGNED`/`TINYINT UNSIGNED` became plain `INTEGER`/`SMALLINT`, since Postgres has no unsigned integer types. The original non-negativity guarantees are preserved through the existing `CHECK` constraints.
+- **`updated_at` auto-refresh**: Postgres has no `ON UPDATE CURRENT_TIMESTAMP` clause, so a shared `set_updated_at()` trigger function is defined once and attached via a `BEFORE UPDATE` trigger to every table that needs it.
+- **Password hashing in seed data**: MySQL's `SHA2()` became `digest()` from the `pgcrypto` extension (`CREATE EXTENSION IF NOT EXISTS pgcrypto;`), producing the same SHA-256 hex digest.
+- **Database creation**: Postgres can't create a database and immediately use it in the same script/session the way MySQL's `CREATE DATABASE` + `USE` does, so setup is split into two files — run `01_create_database.sql` first, then connect to `transitops_db` and run `02_schema_and_seed.sql`.
+
+---
+
 ## Seed Data Notes
 
 Seed data now includes:
@@ -133,5 +148,12 @@ Seed data now includes:
 ---
 
 ## Recommended Next Step
+
+To set up the database:
+
+```bash
+psql -U postgres -f 01_create_database.sql
+psql -U postgres -d transitops_db -f 02_schema_and_seed.sql
+```
 
 When the application is ready, use the seeded users for login testing and then replace the seed values with real production-ready credentials and profile paths.

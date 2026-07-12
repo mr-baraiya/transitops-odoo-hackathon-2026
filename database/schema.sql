@@ -1,265 +1,349 @@
 -- ============================================================
--- TRANSITOPS - COMPLETE DATABASE SETUP (Production-Ready MVP)
+-- TransitOps Fleet Management Database
+-- PostgreSQL Schema
 -- ============================================================
-DROP DATABASE IF EXISTS transitops_db;
 
-CREATE DATABASE transitops_db
-    CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
+BEGIN;
 
-USE transitops_db;
+-- ------------------------------------------------------------
+-- Helper: generic trigger to auto-update updated_at
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- 1. Roles
+-- ============================================================
+-- 1. ROLES
+-- ============================================================
 CREATE TABLE roles (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(50) UNIQUE NOT NULL COMMENT 'Role name'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    id          SERIAL PRIMARY KEY,
+    name        VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
--- 2. Users
+CREATE TRIGGER trg_roles_updated_at
+BEFORE UPDATE ON roles
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ============================================================
+-- 2. USERS
+-- ============================================================
 CREATE TABLE users (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    profile VARCHAR(255) DEFAULT NULL COMMENT 'Profile picture link or file path',
-    role_id INT UNSIGNED NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    id            SERIAL PRIMARY KEY,
+    role_id       INTEGER NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
 
--- 3. Locations
-CREATE TABLE locations (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    first_name    VARCHAR(100) NOT NULL,
+    last_name     VARCHAR(100) NOT NULL,
 
--- 4. Vehicles
+    email         VARCHAR(150) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+
+    phone         VARCHAR(20),
+
+    status        VARCHAR(20) NOT NULL DEFAULT 'Active'
+                  CHECK (status IN ('Active', 'Inactive')),
+    last_login    TIMESTAMPTZ,
+
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_users_role_id ON users(role_id);
+CREATE INDEX idx_users_email   ON users(email);
+
+CREATE TRIGGER trg_users_updated_at
+BEFORE UPDATE ON users
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ============================================================
+-- 3. VEHICLES
+-- ============================================================
 CREATE TABLE vehicles (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    registration_number VARCHAR(20) UNIQUE NOT NULL COMMENT 'Unique vehicle plate/ID',
-    model VARCHAR(100) NOT NULL,
-    type VARCHAR(50) NOT NULL COMMENT 'e.g., Van, Truck, Trailer',
-    max_load_capacity DECIMAL(10,2) NOT NULL CHECK (max_load_capacity >= 0) COMMENT 'in kg',
-    odometer DECIMAL(10,2) DEFAULT 0.00 CHECK (odometer >= 0) COMMENT 'Current odometer reading (km)',
-    acquisition_cost DECIMAL(12,2) NOT NULL CHECK (acquisition_cost >= 0),
-    status ENUM('Available', 'On Trip', 'In Shop', 'Retired') DEFAULT 'Available',
-    deleted_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    id                   SERIAL PRIMARY KEY,
 
--- 5. Drivers
-CREATE TABLE drivers (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    license_number VARCHAR(50) UNIQUE NOT NULL,
-    license_category VARCHAR(20) NOT NULL,
-    license_expiry_date DATE NOT NULL,
-    contact_number VARCHAR(20),
-    safety_score TINYINT UNSIGNED DEFAULT 100 CHECK (safety_score >= 0 AND safety_score <= 100),
-    status ENUM('Available', 'On Trip', 'Off Duty', 'Suspended') DEFAULT 'Available',
-    user_id INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    registration_number  VARCHAR(20) UNIQUE NOT NULL,
 
--- 6. Trips
-CREATE TABLE trips (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    source_location_id INT UNSIGNED NOT NULL,
-    destination_location_id INT UNSIGNED NOT NULL,
-    cargo_weight DECIMAL(10,2) NOT NULL CHECK (cargo_weight >= 0),
-    planned_distance DECIMAL(10,2) NOT NULL CHECK (planned_distance >= 0),
-    actual_distance DECIMAL(10,2) DEFAULT NULL CHECK (actual_distance IS NULL OR actual_distance >= 0),
-    fuel_consumed DECIMAL(10,2) DEFAULT NULL CHECK (fuel_consumed IS NULL OR fuel_consumed >= 0),
-    start_odometer DECIMAL(10,2) DEFAULT NULL,
-    end_odometer DECIMAL(10,2) DEFAULT NULL,
-    revenue DECIMAL(12,2) DEFAULT 0.00 CHECK (revenue >= 0),
-    status ENUM('Draft', 'Dispatched', 'Completed', 'Cancelled') DEFAULT 'Draft',
-    vehicle_id INT UNSIGNED NOT NULL,
-    driver_id INT UNSIGNED NOT NULL,
-    created_by INT UNSIGNED NULL,
-    updated_by INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    dispatched_at DATETIME NULL DEFAULT NULL,
-    completed_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (source_location_id) REFERENCES locations(id) ON DELETE RESTRICT,
-    FOREIGN KEY (destination_location_id) REFERENCES locations(id) ON DELETE RESTRICT,
-    FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT,
-    FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE RESTRICT,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
-    CHECK (start_odometer IS NULL OR end_odometer IS NULL OR end_odometer >= start_odometer),
-    CHECK (completed_at IS NULL OR dispatched_at IS NULL OR completed_at >= dispatched_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    vehicle_name         VARCHAR(100) NOT NULL,
+    model                VARCHAR(100),
 
--- 7. Maintenance Logs
-CREATE TABLE maintenance_logs (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    vehicle_id INT UNSIGNED NOT NULL,
-    maintenance_date DATE NOT NULL,
-    description TEXT NOT NULL,
-    cost DECIMAL(12,2) DEFAULT 0.00 CHECK (cost >= 0),
-    status ENUM('Active', 'Closed') DEFAULT 'Active',
-    created_by INT UNSIGNED NULL,
-    updated_by INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    closed_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    vehicle_type         VARCHAR(50) NOT NULL,
 
--- 8. Fuel Logs
-CREATE TABLE fuel_logs (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    vehicle_id INT UNSIGNED NOT NULL,
-    trip_id INT UNSIGNED NULL,
-    fuel_date DATE NOT NULL,
-    liters DECIMAL(10,2) NOT NULL CHECK (liters >= 0),
-    cost DECIMAL(12,2) NOT NULL CHECK (cost >= 0),
-    created_by INT UNSIGNED NULL,
-    updated_by INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT,
-    FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE SET NULL,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    max_load_capacity    NUMERIC(10,2) NOT NULL CHECK (max_load_capacity >= 0),
 
--- 9. Expenses
-CREATE TABLE expenses (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    vehicle_id INT UNSIGNED NOT NULL,
-    expense_date DATE NOT NULL,
-    description VARCHAR(255) NOT NULL,
-    cost DECIMAL(12,2) NOT NULL CHECK (cost >= 0),
-    type ENUM('Toll', 'Parking', 'Repair', 'Other') DEFAULT 'Other',
-    created_by INT UNSIGNED NULL,
-    updated_by INT UNSIGNED NULL,
-    deleted_at DATETIME NULL DEFAULT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE RESTRICT,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    odometer             NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (odometer >= 0),
 
--- Indexes
+    acquisition_cost     NUMERIC(12,2) CHECK (acquisition_cost >= 0),
+
+    purchase_date        DATE,
+
+    status               VARCHAR(20) NOT NULL DEFAULT 'Available'
+                         CHECK (status IN ('Available', 'On Trip', 'In Shop', 'Retired')),
+
+    region               VARCHAR(100),
+
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX idx_vehicles_status ON vehicles(status);
-CREATE INDEX idx_vehicles_created_at ON vehicles(created_at);
+CREATE INDEX idx_vehicles_region ON vehicles(region);
+
+CREATE TRIGGER trg_vehicles_updated_at
+BEFORE UPDATE ON vehicles
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ============================================================
+-- 4. DRIVERS
+-- ============================================================
+CREATE TABLE drivers (
+    id                SERIAL PRIMARY KEY,
+
+    user_id           INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    license_number    VARCHAR(50) UNIQUE NOT NULL,
+    license_category  VARCHAR(20),
+    license_expiry    DATE NOT NULL,
+
+    safety_score      NUMERIC(5,2) NOT NULL DEFAULT 100
+                      CHECK (safety_score BETWEEN 0 AND 100),
+
+    status            VARCHAR(20) NOT NULL DEFAULT 'Available'
+                      CHECK (status IN ('Available', 'On Trip', 'Off Duty', 'Suspended')),
+
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX idx_drivers_status ON drivers(status);
-CREATE INDEX idx_drivers_created_at ON drivers(created_at);
-CREATE INDEX idx_trips_status ON trips(status);
-CREATE INDEX idx_trips_vehicle_driver ON trips(vehicle_id, driver_id);
-CREATE INDEX idx_trips_created_at ON trips(created_at);
-CREATE INDEX idx_trips_dispatched_at ON trips(dispatched_at);
-CREATE INDEX idx_maintenance_vehicle_status ON maintenance_logs(vehicle_id, status);
-CREATE INDEX idx_maintenance_date ON maintenance_logs(maintenance_date);
-CREATE INDEX idx_fuel_logs_vehicle ON fuel_logs(vehicle_id);
-CREATE INDEX idx_fuel_date ON fuel_logs(fuel_date);
-CREATE INDEX idx_expenses_vehicle ON expenses(vehicle_id);
-CREATE INDEX idx_expenses_date ON expenses(expense_date);
+CREATE INDEX idx_drivers_license_expiry ON drivers(license_expiry);
+
+CREATE TRIGGER trg_drivers_updated_at
+BEFORE UPDATE ON drivers
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ============================================================
--- SEED DATA
+-- 5. TRIPS
 -- ============================================================
-INSERT INTO roles (name) VALUES ('Admin'), ('Fleet Manager'), ('Driver'), ('Safety Officer'), ('Financial Analyst');
+CREATE TABLE trips (
+    id                SERIAL PRIMARY KEY,
 
-INSERT INTO users (name, email, password, profile, role_id) VALUES
-    ('Admin User', 'admin@transitops.com', CONCAT('sha256$', SHA2('admin123', 256)), 'uploads/profiles/admin.jpg', (SELECT id FROM roles WHERE name='Admin')),
-    ('Fleet Manager', 'fleet@transitops.com', CONCAT('sha256$', SHA2('fleet123', 256)), 'uploads/profiles/fleet.jpg', (SELECT id FROM roles WHERE name='Fleet Manager')),
-    ('Driver John', 'john.driver@transitops.com', CONCAT('sha256$', SHA2('driver123', 256)), 'uploads/profiles/driver.jpg', (SELECT id FROM roles WHERE name='Driver')),
-    ('Safety Officer', 'safety@transitops.com', CONCAT('sha256$', SHA2('safety123', 256)), 'uploads/profiles/safety.jpg', (SELECT id FROM roles WHERE name='Safety Officer')),
-    ('Financial Analyst', 'finance@transitops.com', CONCAT('sha256$', SHA2('finance123', 256)), 'uploads/profiles/finance.jpg', (SELECT id FROM roles WHERE name='Financial Analyst'));
+    vehicle_id        INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE RESTRICT,
+    driver_id         INTEGER NOT NULL REFERENCES drivers(id) ON DELETE RESTRICT,
 
-INSERT INTO locations (name) VALUES
-    ('Warehouse A'),
-    ('Store 12'),
-    ('Depot B'),
-    ('City Center'),
-    ('Port C'),
-    ('Warehouse D');
+    source            VARCHAR(150) NOT NULL,
+    destination       VARCHAR(150) NOT NULL,
 
-INSERT INTO vehicles (registration_number, model, type, max_load_capacity, odometer, acquisition_cost, status) VALUES
-    ('VAN-001', 'Ford Transit', 'Van', 800.00, 15234.5, 25000.00, 'Available'),
-    ('TRK-101', 'Scania R500', 'Truck', 15000.00, 78450.0, 120000.00, 'Available'),
-    ('TRK-102', 'Volvo FH', 'Truck', 18000.00, 22300.0, 135000.00, 'On Trip'),
-    ('VAN-002', 'Mercedes Sprinter', 'Van', 1200.00, 9800.0, 31000.00, 'In Shop'),
-    ('TRL-001', 'Utility Trailer', 'Trailer', 5000.00, 5600.0, 8000.00, 'Retired');
+    cargo_weight      NUMERIC(10,2) NOT NULL CHECK (cargo_weight >= 0),
 
-INSERT INTO drivers (name, license_number, license_category, license_expiry_date, contact_number, safety_score, status) VALUES
-    ('Alex Johnson', 'DL-12345', 'B', '2027-05-15', '+1-555-0101', 95, 'Available'),
-    ('Maria Garcia', 'DL-67890', 'C', '2026-11-20', '+1-555-0102', 88, 'On Trip'),
-    ('James Smith', 'DL-11223', 'B', '2025-08-10', '+1-555-0103', 72, 'Suspended'),
-    ('Sarah Lee', 'DL-44556', 'A', '2027-01-01', '+1-555-0104', 100, 'Available'),
-    ('Robert Brown', 'DL-77889', 'D', '2024-12-31', '+1-555-0105', 60, 'Off Duty');
+    planned_distance  NUMERIC(10,2) CHECK (planned_distance >= 0),
+    actual_distance   NUMERIC(10,2) CHECK (actual_distance >= 0),
 
-INSERT INTO trips (source_location_id, destination_location_id, cargo_weight, planned_distance, actual_distance, fuel_consumed, start_odometer, end_odometer, revenue, status, vehicle_id, driver_id, created_by, updated_by, dispatched_at, completed_at) VALUES
-    ((SELECT id FROM locations WHERE name='Warehouse A'), (SELECT id FROM locations WHERE name='Store 12'), 450.00, 120.0, 125.0, 25.5, 15234.5, 15359.5, 350.00, 'Completed',
-        (SELECT id FROM vehicles WHERE registration_number='VAN-001'),
-        (SELECT id FROM drivers WHERE name='Alex Johnson'),
-        (SELECT id FROM users WHERE email='admin@transitops.com'),
-        (SELECT id FROM users WHERE email='admin@transitops.com'),
-        '2026-07-01 08:00:00', '2026-07-01 10:30:00'),
-    ((SELECT id FROM locations WHERE name='Depot B'), (SELECT id FROM locations WHERE name='City Center'), 1000.00, 80.0, NULL, NULL, NULL, NULL, 0.00, 'Draft',
-        (SELECT id FROM vehicles WHERE registration_number='TRK-101'),
-        (SELECT id FROM drivers WHERE name='Maria Garcia'),
-        (SELECT id FROM users WHERE email='fleet@transitops.com'),
-        (SELECT id FROM users WHERE email='fleet@transitops.com'),
-        NULL, NULL),
-    ((SELECT id FROM locations WHERE name='Port C'), (SELECT id FROM locations WHERE name='Warehouse D'), 2000.00, 300.0, NULL, NULL, NULL, NULL, 0.00, 'Dispatched',
-        (SELECT id FROM vehicles WHERE registration_number='TRK-102'),
-        (SELECT id FROM drivers WHERE name='Sarah Lee'),
-        (SELECT id FROM users WHERE email='safety@transitops.com'),
-        (SELECT id FROM users WHERE email='safety@transitops.com'),
-        '2026-07-12 06:00:00', NULL),
-    ((SELECT id FROM locations WHERE name='Store 12'), (SELECT id FROM locations WHERE name='Warehouse A'), 300.00, 125.0, NULL, NULL, NULL, NULL, 0.00, 'Cancelled',
-        (SELECT id FROM vehicles WHERE registration_number='VAN-001'),
-        (SELECT id FROM drivers WHERE name='Alex Johnson'),
-        (SELECT id FROM users WHERE email='finance@transitops.com'),
-        (SELECT id FROM users WHERE email='finance@transitops.com'),
-        NULL, NULL);
+    start_time        TIMESTAMPTZ,
+    end_time          TIMESTAMPTZ,
 
-INSERT INTO maintenance_logs (vehicle_id, maintenance_date, description, cost, status, created_by, updated_by) VALUES
-    ((SELECT id FROM vehicles WHERE registration_number='VAN-002'), '2026-07-10', 'Oil change and brake inspection', 350.00, 'Active',
-        (SELECT id FROM users WHERE email='admin@transitops.com'),
-        (SELECT id FROM users WHERE email='admin@transitops.com')),
-    ((SELECT id FROM vehicles WHERE registration_number='TRK-101'), '2026-06-15', 'Engine tune-up', 1200.00, 'Closed',
-        (SELECT id FROM users WHERE email='fleet@transitops.com'),
-        (SELECT id FROM users WHERE email='fleet@transitops.com'));
+    status            VARCHAR(20) NOT NULL DEFAULT 'Draft'
+                      CHECK (status IN ('Draft', 'Dispatched', 'Completed', 'Cancelled')),
 
-INSERT INTO fuel_logs (vehicle_id, trip_id, fuel_date, liters, cost, created_by, updated_by) VALUES
-    ((SELECT id FROM vehicles WHERE registration_number='VAN-001'),
-     (SELECT id FROM trips WHERE source_location_id = (SELECT id FROM locations WHERE name='Warehouse A') AND destination_location_id = (SELECT id FROM locations WHERE name='Store 12') ORDER BY id LIMIT 1),
-     '2026-07-01', 25.5, 45.90,
-     (SELECT id FROM users WHERE email='admin@transitops.com'),
-     (SELECT id FROM users WHERE email='admin@transitops.com')),
-    ((SELECT id FROM vehicles WHERE registration_number='TRK-102'), NULL, '2026-07-11', 200.0, 360.00,
-     (SELECT id FROM users WHERE email='safety@transitops.com'),
-     (SELECT id FROM users WHERE email='safety@transitops.com')),
-    ((SELECT id FROM vehicles WHERE registration_number='VAN-001'), NULL, '2026-07-05', 30.0, 54.00,
-     (SELECT id FROM users WHERE email='finance@transitops.com'),
-     (SELECT id FROM users WHERE email='finance@transitops.com'));
+    revenue           NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (revenue >= 0),
 
-INSERT INTO expenses (vehicle_id, expense_date, description, cost, type, created_by, updated_by) VALUES
-    ((SELECT id FROM vehicles WHERE registration_number='VAN-001'), '2026-07-01', 'Highway toll', 15.50, 'Toll',
-     (SELECT id FROM users WHERE email='admin@transitops.com'),
-     (SELECT id FROM users WHERE email='admin@transitops.com')),
-    ((SELECT id FROM vehicles WHERE registration_number='TRK-101'), '2026-06-20', 'Parking fee at depot', 25.00, 'Parking',
-     (SELECT id FROM users WHERE email='fleet@transitops.com'),
-     (SELECT id FROM users WHERE email='fleet@transitops.com')),
-    ((SELECT id FROM vehicles WHERE registration_number='VAN-002'), '2026-07-09', 'Replacement wiper blades', 12.99, 'Repair',
-     (SELECT id FROM users WHERE email='admin@transitops.com'),
-     (SELECT id FROM users WHERE email='admin@transitops.com'));
+    remarks           TEXT,
+
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT chk_trip_times CHECK (end_time IS NULL OR start_time IS NULL OR end_time >= start_time)
+);
+
+CREATE INDEX idx_trips_vehicle_id ON trips(vehicle_id);
+CREATE INDEX idx_trips_driver_id  ON trips(driver_id);
+CREATE INDEX idx_trips_status     ON trips(status);
+CREATE INDEX idx_trips_start_time ON trips(start_time);
+
+CREATE TRIGGER trg_trips_updated_at
+BEFORE UPDATE ON trips
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ============================================================
+-- 6. MAINTENANCE LOGS
+-- ============================================================
+CREATE TABLE maintenance_logs (
+    id                SERIAL PRIMARY KEY,
+
+    vehicle_id        INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+
+    title             VARCHAR(150) NOT NULL,
+    description       TEXT,
+
+    maintenance_type  VARCHAR(50) NOT NULL,
+
+    cost              NUMERIC(12,2) CHECK (cost >= 0),
+
+    start_date        DATE NOT NULL,
+    end_date          DATE,
+
+    status            VARCHAR(20) NOT NULL DEFAULT 'Pending'
+                      CHECK (status IN ('Pending', 'In Progress', 'Completed')),
+
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT chk_maintenance_dates CHECK (end_date IS NULL OR end_date >= start_date)
+);
+
+CREATE INDEX idx_maintenance_vehicle_id ON maintenance_logs(vehicle_id);
+CREATE INDEX idx_maintenance_status     ON maintenance_logs(status);
+
+CREATE TRIGGER trg_maintenance_updated_at
+BEFORE UPDATE ON maintenance_logs
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ============================================================
+-- 7. FUEL LOGS
+-- ============================================================
+CREATE TABLE fuel_logs (
+    id          SERIAL PRIMARY KEY,
+
+    vehicle_id  INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    trip_id     INTEGER REFERENCES trips(id) ON DELETE SET NULL,
+
+    liters      NUMERIC(10,2) NOT NULL CHECK (liters > 0),
+    cost        NUMERIC(12,2) NOT NULL CHECK (cost >= 0),
+
+    fuel_date   DATE NOT NULL DEFAULT CURRENT_DATE,
+    odometer    NUMERIC(10,2) CHECK (odometer >= 0),
+
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_fuel_vehicle_id ON fuel_logs(vehicle_id);
+CREATE INDEX idx_fuel_trip_id    ON fuel_logs(trip_id);
+CREATE INDEX idx_fuel_date       ON fuel_logs(fuel_date);
+
+-- ============================================================
+-- 8. EXPENSES
+-- ============================================================
+CREATE TABLE expenses (
+    id            SERIAL PRIMARY KEY,
+
+    vehicle_id    INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    trip_id       INTEGER REFERENCES trips(id) ON DELETE SET NULL,
+
+    expense_type  VARCHAR(20) NOT NULL
+                  CHECK (expense_type IN ('Fuel', 'Maintenance', 'Toll', 'Insurance', 'Repair', 'Other')),
+
+    amount        NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
+    description   TEXT,
+    expense_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_expenses_vehicle_id ON expenses(vehicle_id);
+CREATE INDEX idx_expenses_trip_id    ON expenses(trip_id);
+CREATE INDEX idx_expenses_type       ON expenses(expense_type);
+CREATE INDEX idx_expenses_date       ON expenses(expense_date);
+
+COMMIT;
+
+-- ============================================================
+-- DASHBOARD VIEWS (bonus: ready-made KPI queries)
+-- ============================================================
+
+-- Fleet status counts
+CREATE OR REPLACE VIEW v_fleet_status_summary AS
+SELECT
+    COUNT(*)                                   AS total_vehicles,
+    COUNT(*) FILTER (WHERE status = 'Available') AS available_vehicles,
+    COUNT(*) FILTER (WHERE status = 'On Trip')    AS vehicles_on_trip,
+    COUNT(*) FILTER (WHERE status = 'In Shop')    AS vehicles_in_shop,
+    COUNT(*) FILTER (WHERE status = 'Retired')    AS retired_vehicles
+FROM vehicles;
+
+-- Trip status counts
+CREATE OR REPLACE VIEW v_trip_status_summary AS
+SELECT
+    COUNT(*) FILTER (WHERE status = 'Dispatched') AS active_trips,
+    COUNT(*) FILTER (WHERE status = 'Draft')       AS pending_trips,
+    COUNT(*) FILTER (WHERE status = 'Completed')   AS completed_trips,
+    COUNT(*) FILTER (WHERE status = 'Cancelled')   AS cancelled_trips
+FROM trips;
+
+-- Drivers currently on duty (On Trip or Available, i.e. not Off Duty/Suspended)
+CREATE OR REPLACE VIEW v_drivers_on_duty AS
+SELECT COUNT(*) AS drivers_on_duty
+FROM drivers
+WHERE status IN ('On Trip', 'Available');
+
+-- Fleet utilization = vehicles on trip / total active (non-retired) vehicles
+CREATE OR REPLACE VIEW v_fleet_utilization AS
+SELECT
+    ROUND(
+        100.0 * COUNT(*) FILTER (WHERE status = 'On Trip')
+        / NULLIF(COUNT(*) FILTER (WHERE status != 'Retired'), 0)
+    , 2) AS fleet_utilization_pct
+FROM vehicles;
+
+-- Cost summaries
+CREATE OR REPLACE VIEW v_cost_summary AS
+SELECT
+    (SELECT COALESCE(SUM(cost), 0) FROM fuel_logs)                                   AS total_fuel_cost,
+    (SELECT COALESCE(SUM(cost), 0) FROM maintenance_logs)                            AS total_maintenance_cost,
+    (SELECT COALESCE(SUM(amount), 0) FROM expenses)                                  AS total_expenses,
+    (SELECT COALESCE(SUM(revenue), 0) FROM trips WHERE status = 'Completed')         AS total_revenue;
+
+-- Per-vehicle ROI: revenue from completed trips minus (acquisition cost + maintenance + fuel + other expenses)
+CREATE OR REPLACE VIEW v_vehicle_roi AS
+SELECT
+    v.id                                                             AS vehicle_id,
+    v.registration_number,
+    v.vehicle_name,
+    COALESCE(t.total_revenue, 0)                                     AS total_revenue,
+    COALESCE(f.total_fuel_cost, 0)                                   AS total_fuel_cost,
+    COALESCE(m.total_maintenance_cost, 0)                            AS total_maintenance_cost,
+    COALESCE(e.total_other_expenses, 0)                              AS total_other_expenses,
+    COALESCE(t.total_revenue, 0)
+        - COALESCE(f.total_fuel_cost, 0)
+        - COALESCE(m.total_maintenance_cost, 0)
+        - COALESCE(e.total_other_expenses, 0)                        AS net_profit
+FROM vehicles v
+LEFT JOIN (
+    SELECT vehicle_id, SUM(revenue) AS total_revenue
+    FROM trips WHERE status = 'Completed'
+    GROUP BY vehicle_id
+) t ON t.vehicle_id = v.id
+LEFT JOIN (
+    SELECT vehicle_id, SUM(cost) AS total_fuel_cost
+    FROM fuel_logs GROUP BY vehicle_id
+) f ON f.vehicle_id = v.id
+LEFT JOIN (
+    SELECT vehicle_id, SUM(cost) AS total_maintenance_cost
+    FROM maintenance_logs GROUP BY vehicle_id
+) m ON m.vehicle_id = v.id
+LEFT JOIN (
+    SELECT vehicle_id, SUM(amount) AS total_other_expenses
+    FROM expenses WHERE expense_type NOT IN ('Fuel', 'Maintenance')
+    GROUP BY vehicle_id
+) e ON e.vehicle_id = v.id;
+
+-- Drivers with expiring/expired licenses (safety compliance)
+CREATE OR REPLACE VIEW v_license_alerts AS
+SELECT
+    d.id AS driver_id,
+    u.first_name,
+    u.last_name,
+    d.license_number,
+    d.license_expiry,
+    CASE
+        WHEN d.license_expiry < CURRENT_DATE THEN 'Expired'
+        WHEN d.license_expiry <= CURRENT_DATE + INTERVAL '30 days' THEN 'Expiring Soon'
+        ELSE 'Valid'
+    END AS license_status
+FROM drivers d
+JOIN users u ON u.id = d.user_id
+WHERE d.license_expiry <= CURRENT_DATE + INTERVAL '30 days';
