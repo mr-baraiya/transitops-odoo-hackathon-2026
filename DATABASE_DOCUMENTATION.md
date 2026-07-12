@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the database schema and seed data for the TransitOps system. The database is named `transitops_db` and is designed to manage fleet operations, including users, vehicles, drivers, trips, maintenance records, fuel usage, and operating expenses.
+This database is designed for a fleet management system and now includes stronger integrity rules, better normalization, audit tracking, and more secure seed data.
 
 ## Database Details
 
@@ -11,320 +11,127 @@ This document describes the database schema and seed data for the TransitOps sys
 - Collation: `utf8mb4_unicode_ci`
 - Storage engine: `InnoDB`
 
+## What Changed
+
+The schema now includes:
+
+- `CHECK` constraints for non-negative values and trip/odometer logic
+- A `locations` table to normalize trip start and end locations
+- An optional `user_id` link from `drivers` to `users`
+- Soft-delete support using `deleted_at`
+- Audit columns (`created_by`, `updated_by`) on operational tables
+- Hashed passwords in the seed data
+- Date/time fields stored as `DATETIME` for clearer application-level timezone handling
+- Extra indexes for date-based reporting
+
 ## Table Summary
 
-| Table              | Purpose                                                |
-| ------------------ | ------------------------------------------------------ |
-| `roles`            | Stores user roles in the system                        |
-| `users`            | Stores application users and login-related information |
-| `vehicles`         | Stores fleet vehicle information                       |
-| `drivers`          | Stores driver profile and licensing information        |
-| `trips`            | Stores trip planning and execution records             |
-| `maintenance_logs` | Tracks vehicle maintenance activities                  |
-| `fuel_logs`        | Stores fuel consumption records                        |
-| `expenses`         | Tracks trip or vehicle-related expenses                |
+| Table              | Purpose                                                        |
+| ------------------ | -------------------------------------------------------------- |
+| `roles`            | Stores available user roles                                    |
+| `users`            | Stores application users, credentials, and profile information |
+| `locations`        | Stores normalized trip locations                               |
+| `vehicles`         | Stores fleet vehicle records                                   |
+| `drivers`          | Stores driver details and optional login linkage               |
+| `trips`            | Stores trip planning and execution records                     |
+| `maintenance_logs` | Tracks vehicle maintenance work                                |
+| `fuel_logs`        | Stores fuel consumption entries                                |
+| `expenses`         | Stores vehicle operating expenses                              |
 
 ---
 
 ## 1. Roles
 
-### Purpose
-
-Defines the access roles available in the system.
-
-### Fields
-
-- `id`: Auto-increment primary key
+- `id`: Primary key
 - `name`: Unique role name
-
-### Seed Data
-
-Default roles include:
-
-- Admin
-- Fleet Manager
-- Driver
-- Safety Officer
-- Financial Analyst
-
----
 
 ## 2. Users
 
-### Purpose
+- `id`: Primary key
+- `name`: User full name
+- `email`: Unique login email
+- `password`: Hashed password value
+- `profile`: Optional profile-picture link or file path
+- `role_id`: FK to `roles.id`
+- `created_at` / `updated_at`: Audit timestamps
 
-Stores login users associated with different roles.
+## 3. Locations
 
-### Fields
+Used to normalize trip locations instead of storing free-form strings.
 
-- `id`: Auto-increment primary key
-- `name`: Full name of the user
-- `email`: Unique email address
-- `password`: Stored password value
-- `profile`: Optional profile picture link or file path
-- `role_id`: Reference to the user’s role
-- `created_at`: Timestamp when the user was created
+- `id`: Primary key
+- `name`: Unique location name
 
-### Relationship
+## 4. Vehicles
 
-- `role_id` references `roles.id`
+- `registration_number`: Unique vehicle identifier
+- `model`, `type`: Vehicle details
+- `max_load_capacity`, `odometer`, `acquisition_cost`: Numeric values protected by `CHECK` constraints
+- `status`: Vehicle availability state
+- `deleted_at`: Soft-delete marker
 
-### Seed Data
+## 5. Drivers
 
-Sample users include:
+- `license_number`: Unique license identifier
+- `license_category`, `license_expiry_date`, `contact_number`
+- `safety_score`: Validated between 0 and 100
+- `user_id`: Optional FK to `users.id`
+- `deleted_at`: Soft-delete marker
 
-- Admin User
-- Fleet Manager
-- Driver John
-- Safety Officer
-- Financial Analyst
+## 6. Trips
 
----
+Trips now use location IDs instead of plain strings.
 
-## 3. Vehicles
+- `source_location_id` / `destination_location_id`: FKs to `locations.id`
+- `cargo_weight`, `planned_distance`, `actual_distance`, `fuel_consumed`, `revenue`: Positive-value checks
+- `start_odometer`, `end_odometer`: Enforced so `end_odometer >= start_odometer` when both exist
+- `dispatched_at`, `completed_at`: Enforced so completion cannot happen before dispatch
+- `created_by`, `updated_by`: Audit columns
+- `deleted_at`: Soft-delete marker
 
-### Purpose
+## 7. Maintenance Logs
 
-Stores all vehicles in the fleet.
+- Stores maintenance work for a vehicle
+- Includes `created_by`, `updated_by`, and `deleted_at`
+- `cost` is validated as non-negative
 
-### Fields
+## 8. Fuel Logs
 
-- `id`: Auto-increment primary key
-- `registration_number`: Unique vehicle identifier/plate number
-- `model`: Vehicle model name
-- `type`: Vehicle category such as Van, Truck, or Trailer
-- `max_load_capacity`: Maximum load capacity in kg
-- `odometer`: Current odometer reading in km
-- `acquisition_cost`: Purchase cost of the vehicle
-- `status`: Current vehicle state
-- `created_at`: Record creation timestamp
-- `updated_at`: Record update timestamp
+- Stores fuel usage for a vehicle and optional trip link
+- Includes `created_by`, `updated_by`, and `deleted_at`
+- `liters` and `cost` are validated as non-negative
 
-### Allowed Status Values
+## 9. Expenses
 
-- `Available`
-- `On Trip`
-- `In Shop`
-- `Retired`
-
-### Seed Data
-
-The system includes vehicles such as:
-
-- VAN-001
-- TRK-101
-- TRK-102
-- VAN-002
-- TRL-001
+- Stores expenses related to vehicles
+- Includes `created_by`, `updated_by`, and `deleted_at`
+- `cost` is validated as non-negative
 
 ---
 
-## 4. Drivers
+## Integrity Rules Added
 
-### Purpose
-
-Stores information about drivers and their licenses.
-
-### Fields
-
-- `id`: Auto-increment primary key
-- `name`: Driver name
-- `license_number`: Unique license number
-- `license_category`: License category
-- `license_expiry_date`: License expiry date
-- `contact_number`: Phone/contact number
-- `safety_score`: Driver safety score
-- `status`: Current driver availability state
-- `created_at`: Timestamp when the record was created
-- `updated_at`: Timestamp when the record was updated
-
-### Allowed Status Values
-
-- `Available`
-- `On Trip`
-- `Off Duty`
-- `Suspended`
-
-### Seed Data
-
-Sample drivers include:
-
-- Alex Johnson
-- Maria Garcia
-- James Smith
-- Sarah Lee
-- Robert Brown
+- Numeric values such as cargo weight, distance, cost, liters, and odometer must be `>= 0`
+- Trip odometer values must not go backward
+- A trip cannot be completed before it is dispatched
+- Optional audit and soft-delete fields reduce accidental data loss
 
 ---
 
-## 5. Trips
+## Seed Data Notes
 
-### Purpose
+Seed data now includes:
 
-Stores transport trips assigned to vehicles and drivers.
-
-### Fields
-
-- `id`: Auto-increment primary key
-- `source`: Starting location
-- `destination`: Ending location
-- `cargo_weight`: Cargo weight in tons or base units used by the app
-- `planned_distance`: Planned trip distance in km
-- `actual_distance`: Actual distance traveled
-- `fuel_consumed`: Fuel used during the trip
-- `start_odometer`: Odometer at trip start
-- `end_odometer`: Odometer at trip end
-- `revenue`: Revenue generated by the trip
-- `status`: Current trip status
-- `vehicle_id`: Vehicle assigned to the trip
-- `driver_id`: Driver assigned to the trip
-- `dispatched_at`: Time when the trip was dispatched
-- `completed_at`: Time when the trip was completed
-- `created_at`: Record creation timestamp
-- `updated_at`: Record update timestamp
-
-### Allowed Status Values
-
-- `Draft`
-- `Dispatched`
-- `Completed`
-- `Cancelled`
-
-### Relationships
-
-- `vehicle_id` references `vehicles.id`
-- `driver_id` references `drivers.id`
-
-### Seed Data
-
-Sample trips include completed, draft, dispatched, and cancelled records.
+- Five roles
+- Five users with hashed passwords and profile values
+- Six named locations
+- Five vehicles
+- Five drivers
+- Four trips with normalized location references
+- Maintenance, fuel, and expense entries tied to the main entities
 
 ---
 
-## 6. Maintenance Logs
+## Recommended Next Step
 
-### Purpose
-
-Tracks maintenance or repair work performed on vehicles.
-
-### Fields
-
-- `id`: Auto-increment primary key
-- `vehicle_id`: Vehicle associated with the maintenance entry
-- `maintenance_date`: Date of the maintenance event
-- `description`: Description of repair work
-- `cost`: Maintenance cost
-- `status`: Maintenance status
-- `closed_at`: Timestamp when the maintenance record was closed
-- `created_at`: Record creation timestamp
-- `updated_at`: Record update timestamp
-
-### Allowed Status Values
-
-- `Active`
-- `Closed`
-
-### Relationship
-
-- `vehicle_id` references `vehicles.id`
-
----
-
-## 7. Fuel Logs
-
-### Purpose
-
-Records fuel consumption for vehicles and optionally linked trips.
-
-### Fields
-
-- `id`: Auto-increment primary key
-- `vehicle_id`: Vehicle that consumed the fuel
-- `trip_id`: Optional trip linked to the fuel entry
-- `fuel_date`: Date of fueling
-- `liters`: Liters of fuel consumed
-- `cost`: Fuel cost
-- `created_at`: Record creation timestamp
-
-### Relationships
-
-- `vehicle_id` references `vehicles.id`
-- `trip_id` references `trips.id`
-
----
-
-## 8. Expenses
-
-### Purpose
-
-Tracks expenses related to vehicles.
-
-### Fields
-
-- `id`: Auto-increment primary key
-- `vehicle_id`: Vehicle associated with the expense
-- `expense_date`: Date of expense
-- `description`: Expense description
-- `cost`: Expense amount
-- `type`: Expense category
-- `created_at`: Record creation timestamp
-
-### Allowed Expense Types
-
-- `Toll`
-- `Parking`
-- `Repair`
-- `Other`
-
-### Relationship
-
-- `vehicle_id` references `vehicles.id`
-
----
-
-## Relationships Overview
-
-The schema is built around these core relationships:
-
-- Each user belongs to one role.
-- Each trip is assigned to one vehicle and one driver.
-- Each maintenance log belongs to one vehicle.
-- Each fuel log belongs to one vehicle and may optionally relate to one trip.
-- Each expense belongs to one vehicle.
-
----
-
-## Indexes
-
-The database includes indexes for faster lookups on:
-
-- Vehicle status
-- Driver status
-- Trip status
-- Trip by vehicle and driver
-- Maintenance records by vehicle and status
-- Fuel logs by vehicle
-- Expenses by vehicle
-
----
-
-## Seed Data Summary
-
-The initialization script also inserts sample data for testing and development:
-
-- Roles: 5 roles
-- Users: 5 sample users
-- Vehicles: 5 sample vehicles
-- Drivers: 5 sample drivers
-- Trips: 4 sample trips
-- Maintenance logs: 2 sample maintenance records
-- Fuel logs: 3 sample fuel entries
-- Expenses: 3 sample expenses
-
----
-
-## Notes
-
-- The `profile` field in the `users` table is intended to store a profile picture link or file path.
-- The schema uses `NOT NULL` where data is required and `NULL` where the value may be optional.
-- The database is suitable for a fleet management demo or MVP application.
+When the application is ready, use the seeded users for login testing and then replace the seed values with real production-ready credentials and profile paths.
